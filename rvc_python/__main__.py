@@ -22,7 +22,7 @@ def main():
         "--workers",
         type=int,
         default=1,
-        help="Number of worker threads for directory processing",
+        help="Number of worker threads for CPU processing",
     )
 
     # API parser
@@ -68,7 +68,7 @@ def main():
 
         if args.input:
             # Process single file
-            rvc.infer_file(args.input, args.output)
+            rvc.infer_file(args.input, args.output, num_workers=args.workers)
             print(f"Processed file saved to: {args.output}")
         elif args.dir:
             # Process directory

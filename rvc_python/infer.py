@@ -114,12 +114,14 @@ class RVCInference:
             else:
                 print(f"Warning: parameter {key} not recognized and will be ignored.")
 
-    def infer_file(self, input_path, output_path):
+    def infer_file(self, input_path, output_path, num_workers=1):
         """Processes a single file.
 
         Args:
             input_path (str): Path to the input audio file.
             output_path (str): Path to save the output audio file.
+            num_workers (int, optional): Number of worker threads to use for
+                processing. Defaults to ``1`` (no parallelism).
         """
         if not self.current_model:
             raise ValueError("Please load a model first.")
@@ -139,7 +141,8 @@ class RVCInference:
             rms_mix_rate=self.rms_mix_rate,
             protect=self.protect,
             f0_file="",
-            file_index2=""
+            file_index2="",
+            num_workers=num_workers,
         )
 
         wavfile.write(output_path, self.vc.tgt_sr, wav_opt)
@@ -164,7 +167,7 @@ class RVCInference:
         def process_file(input_audio_path):
             output_filename = os.path.splitext(os.path.basename(input_audio_path))[0] + '.wav'
             output_path = os.path.join(output_dir, output_filename)
-            self.infer_file(input_audio_path, output_path)
+            self.infer_file(input_audio_path, output_path, num_workers=1)
             return output_path
 
         if num_workers > 1:

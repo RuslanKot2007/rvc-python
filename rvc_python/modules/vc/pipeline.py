@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 
 from functools import lru_cache
 from time import time as ttime
+from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 
 import faiss
 import librosa
@@ -301,6 +303,7 @@ class Pipeline(object):
         version,
         protect,
         f0_file=None,
+        num_workers=1,
     ):
         if (
             file_index != ""
@@ -373,77 +376,54 @@ class Pipeline(object):
             pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
         t2 = ttime()
         times[1] += t2 - t1
+        segments = []
+        s = 0
         for t in opt_ts:
             t = t // self.window * self.window
             if if_f0 == 1:
-                audio_opt.append(
-                    self.vc(
-                        model,
-                        net_g,
-                        sid,
-                        audio_pad[s : t + self.t_pad2 + self.window],
-                        pitch[:, s // self.window : (t + self.t_pad2) // self.window],
-                        pitchf[:, s // self.window : (t + self.t_pad2) // self.window],
-                        times,
-                        index,
-                        big_npy,
-                        index_rate,
-                        version,
-                        protect,
-                    )[self.t_pad_tgt : -self.t_pad_tgt]
-                )
+                p = pitch[:, s // self.window : (t + self.t_pad2) // self.window]
+                pf = pitchf[:, s // self.window : (t + self.t_pad2) // self.window]
             else:
-                audio_opt.append(
-                    self.vc(
-                        model,
-                        net_g,
-                        sid,
-                        audio_pad[s : t + self.t_pad2 + self.window],
-                        None,
-                        None,
-                        times,
-                        index,
-                        big_npy,
-                        index_rate,
-                        version,
-                        protect,
-                    )[self.t_pad_tgt : -self.t_pad_tgt]
-                )
+                p = pf = None
+            segments.append((audio_pad[s : t + self.t_pad2 + self.window], p, pf))
             s = t
         if if_f0 == 1:
-            audio_opt.append(
-                self.vc(
-                    model,
-                    net_g,
-                    sid,
-                    audio_pad[t:],
-                    pitch[:, t // self.window :] if t is not None else pitch,
-                    pitchf[:, t // self.window :] if t is not None else pitchf,
-                    times,
-                    index,
-                    big_npy,
-                    index_rate,
-                    version,
-                    protect,
-                )[self.t_pad_tgt : -self.t_pad_tgt]
-            )
+            p = pitch[:, s // self.window :] if s is not None else pitch
+            pf = pitchf[:, s // self.window :] if s is not None else pitchf
         else:
-            audio_opt.append(
-                self.vc(
-                    model,
-                    net_g,
-                    sid,
-                    audio_pad[t:],
-                    None,
-                    None,
-                    times,
-                    index,
-                    big_npy,
-                    index_rate,
-                    version,
-                    protect,
-                )[self.t_pad_tgt : -self.t_pad_tgt]
-            )
+            p = pf = None
+        segments.append((audio_pad[s:], p, pf))
+
+        lock = Lock()
+
+        def process(seg):
+            seg_audio, seg_pitch, seg_pitchf = seg
+            seg_times = [0, 0, 0]
+            out = self.vc(
+                model,
+                net_g,
+                sid,
+                seg_audio,
+                seg_pitch,
+                seg_pitchf,
+                seg_times,
+                index,
+                big_npy,
+                index_rate,
+                version,
+                protect,
+            )[self.t_pad_tgt : -self.t_pad_tgt]
+            with lock:
+                for i in range(3):
+                    times[i] += seg_times[i]
+            return out
+
+        if num_workers > 1:
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                audio_opt = list(executor.map(process, segments))
+        else:
+            audio_opt = [process(seg) for seg in segments]
+
         audio_opt = np.concatenate(audio_opt)
         if rms_mix_rate != 1:
             audio_opt = change_rms(audio, 16000, audio_opt, tgt_sr, rms_mix_rate)
