@@ -145,12 +145,14 @@ class RVCInference:
         wavfile.write(output_path, self.vc.tgt_sr, wav_opt)
         return output_path
 
-    def infer_dir(self, input_dir, output_dir):
+    def infer_dir(self, input_dir, output_dir, num_workers=1):
         """Processes all files in a directory.
 
         Args:
             input_dir (str): Path to the input directory containing audio files.
             output_dir (str): Path to the output directory to save processed files.
+            num_workers (int, optional): Number of worker threads to use for
+                parallel processing. Defaults to ``1`` (no parallelism).
         """
         if not self.current_model:
             raise ValueError("Please load a model first.")
@@ -159,11 +161,21 @@ class RVCInference:
         audio_files = glob(os.path.join(input_dir, '*.*'))
         processed_files = []
 
-        for input_audio_path in audio_files:
+        def process_file(input_audio_path):
             output_filename = os.path.splitext(os.path.basename(input_audio_path))[0] + '.wav'
             output_path = os.path.join(output_dir, output_filename)
             self.infer_file(input_audio_path, output_path)
-            processed_files.append(output_path)
+            return output_path
+
+        if num_workers > 1:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                for result in executor.map(process_file, audio_files):
+                    processed_files.append(result)
+        else:
+            for input_audio_path in audio_files:
+                processed_files.append(process_file(input_audio_path))
 
         return processed_files
 

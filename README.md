@@ -27,6 +27,7 @@ https://github.com/daswer123/rvc-python/assets/22278673/6ecb590e-8a71-46aa-8ade-
 - Support for both CPU and GPU acceleration
 - Dynamic model loading and unloading
 - Flexible model directory management
+- Multithreaded batch processing for faster inference on CPU
 
 ## Installation
 
@@ -75,7 +76,7 @@ python -m rvc_python cli -i INPUT -o OUTPUT -mp MODEL [options]
 
 Example:
 ```bash
-python -m rvc_python cli -i input.wav -o output.wav -mp path/to/model.pth -de cuda:0
+python -m rvc_python cli -i input.wav -o output.wav -mp path/to/model.pth -de cuda:0 -w 4
 ```
 
 #### API Mode
@@ -98,6 +99,7 @@ from rvc_python.infer import RVCInference
 rvc = RVCInference(device="cuda:0")
 rvc.load_model("path/to/model.pth")
 rvc.infer_file("input.wav", "output.wav")
+rvc.infer_dir("input_dir", "output_dir", num_workers=4)
 ```
 
 ### API
@@ -262,6 +264,7 @@ You can add new models by:
 - `-rsr`, `--resample_sr`: Output resampling rate
 - `-rmr`, `--rms_mix_rate`: Volume envelope mix rate
 - `-pr`, `--protect`: Protection for voiceless consonants
+- `-w`, `--workers`: Number of worker threads for directory processing
 
 ### API Server Options
 - `-p`, `--port`: API server port (default: 5050)
