@@ -7,8 +7,8 @@ logger = logging.getLogger(__name__)
 
 from functools import lru_cache
 from time import time as ttime
-from concurrent.futures import ThreadPoolExecutor
-from threading import Lock
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
 
 import faiss
 import librosa
@@ -27,6 +27,37 @@ sys.path.append(now_dir)
 bh, ah = signal.butter(N=5, Wn=48, btype="high", fs=16000)
 
 input_audio_path2wav = {}
+
+# Globals used for multiprocessing workers
+_pipeline_instance = None
+_process_context = {}
+
+
+def _init_worker(num_threads=1):
+    """Initializer for worker processes."""
+    torch.set_num_threads(num_threads)
+
+
+def _process_segment(seg):
+    """Process a single audio segment in a worker process."""
+    seg_audio, seg_pitch, seg_pitchf = seg
+    ctx = _process_context
+    times = [0, 0, 0]
+    out = _pipeline_instance.vc(
+        ctx["model"],
+        ctx["net_g"],
+        ctx["sid"],
+        seg_audio,
+        seg_pitch,
+        seg_pitchf,
+        times,
+        ctx["index"],
+        ctx["big_npy"],
+        ctx["index_rate"],
+        ctx["version"],
+        ctx["protect"],
+    )[_pipeline_instance.t_pad_tgt : -_pipeline_instance.t_pad_tgt]
+    return out, times
 
 
 @lru_cache
@@ -394,35 +425,39 @@ class Pipeline(object):
             p = pf = None
         segments.append((audio_pad[s:], p, pf))
 
-        lock = Lock()
-
-        def process(seg):
-            seg_audio, seg_pitch, seg_pitchf = seg
-            seg_times = [0, 0, 0]
-            out = self.vc(
-                model,
-                net_g,
-                sid,
-                seg_audio,
-                seg_pitch,
-                seg_pitchf,
-                seg_times,
-                index,
-                big_npy,
-                index_rate,
-                version,
-                protect,
-            )[self.t_pad_tgt : -self.t_pad_tgt]
-            with lock:
-                for i in range(3):
-                    times[i] += seg_times[i]
-            return out
+        global _pipeline_instance, _process_context
+        _pipeline_instance = self
+        _process_context = {
+            "model": model,
+            "net_g": net_g,
+            "sid": sid,
+            "index": index,
+            "big_npy": big_npy,
+            "index_rate": index_rate,
+            "version": version,
+            "protect": protect,
+        }
 
         if num_workers > 1:
-            with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                audio_opt = list(executor.map(process, segments))
+            with ProcessPoolExecutor(
+                max_workers=num_workers,
+                mp_context=multiprocessing.get_context("fork"),
+                initializer=_init_worker,
+                initargs=(1,),
+            ) as executor:
+                results = list(executor.map(_process_segment, segments))
+            audio_opt = []
+            for out, seg_times in results:
+                audio_opt.append(out)
+                for i in range(3):
+                    times[i] += seg_times[i]
         else:
-            audio_opt = [process(seg) for seg in segments]
+            audio_opt = []
+            for seg in segments:
+                out, seg_times = _process_segment(seg)
+                audio_opt.append(out)
+                for i in range(3):
+                    times[i] += seg_times[i]
 
         audio_opt = np.concatenate(audio_opt)
         if rms_mix_rate != 1:

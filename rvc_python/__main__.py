@@ -22,7 +22,7 @@ def main():
         "--workers",
         type=int,
         default=1,
-        help="Number of worker threads for CPU processing",
+        help="Number of worker processes for CPU processing",
     )
 
     # API parser

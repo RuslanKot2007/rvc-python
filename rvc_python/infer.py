@@ -5,6 +5,10 @@ from glob import glob
 import soundfile as sf
 from scipy.io import wavfile
 from rvc_python.modules.vc.modules import VC
+from rvc_python.modules.vc.pipeline import _init_worker
+
+# Global inference instance for multiprocessing workers
+_inference_instance = None
 from rvc_python.configs.config import Config
 from rvc_python.download_model import download_rvc_models
 
@@ -120,7 +124,7 @@ class RVCInference:
         Args:
             input_path (str): Path to the input audio file.
             output_path (str): Path to save the output audio file.
-            num_workers (int, optional): Number of worker threads to use for
+            num_workers (int, optional): Number of worker processes to use for
                 processing. Defaults to ``1`` (no parallelism).
         """
         if not self.current_model:
@@ -154,7 +158,7 @@ class RVCInference:
         Args:
             input_dir (str): Path to the input directory containing audio files.
             output_dir (str): Path to the output directory to save processed files.
-            num_workers (int, optional): Number of worker threads to use for
+            num_workers (int, optional): Number of worker processes to use for
                 parallel processing. Defaults to ``1`` (no parallelism).
         """
         if not self.current_model:
@@ -164,16 +168,25 @@ class RVCInference:
         audio_files = glob(os.path.join(input_dir, '*.*'))
         processed_files = []
 
+        global _inference_instance
+        _inference_instance = self
+
         def process_file(input_audio_path):
             output_filename = os.path.splitext(os.path.basename(input_audio_path))[0] + '.wav'
             output_path = os.path.join(output_dir, output_filename)
-            self.infer_file(input_audio_path, output_path, num_workers=1)
+            _inference_instance.infer_file(input_audio_path, output_path, num_workers=1)
             return output_path
 
         if num_workers > 1:
-            from concurrent.futures import ThreadPoolExecutor
+            from concurrent.futures import ProcessPoolExecutor
+            import multiprocessing
 
-            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            with ProcessPoolExecutor(
+                max_workers=num_workers,
+                mp_context=multiprocessing.get_context("fork"),
+                initializer=_init_worker,
+                initargs=(1,),
+            ) as executor:
                 for result in executor.map(process_file, audio_files):
                     processed_files.append(result)
         else:

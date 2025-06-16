@@ -27,7 +27,7 @@ https://github.com/daswer123/rvc-python/assets/22278673/6ecb590e-8a71-46aa-8ade-
 - Support for both CPU and GPU acceleration
 - Dynamic model loading and unloading
 - Flexible model directory management
-- Multithreaded processing for faster inference on CPU
+- Multiprocess processing for faster inference on CPU
 
 ## Installation
 
@@ -264,7 +264,7 @@ You can add new models by:
 - `-rsr`, `--resample_sr`: Output resampling rate
 - `-rmr`, `--rms_mix_rate`: Volume envelope mix rate
 - `-pr`, `--protect`: Protection for voiceless consonants
-- `-w`, `--workers`: Number of worker threads for CPU processing
+- `-w`, `--workers`: Number of worker processes for CPU processing
 
 ### API Server Options
 - `-p`, `--port`: API server port (default: 5050)
