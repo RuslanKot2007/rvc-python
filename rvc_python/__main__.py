@@ -17,6 +17,13 @@ def main():
     cli_parser.add_argument("-d", "--dir", type=str, help="Directory path containing audio files")
     cli_parser.add_argument("-o", "--output", type=str, default="out.wav", help="Output path for single file, or output directory for multiple files")
     cli_parser.add_argument("-mp", "--model", type=str, required=True, help="Path to model file")
+    cli_parser.add_argument(
+        "-w",
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of worker processes for CPU processing",
+    )
 
     # API parser
     api_parser = subparsers.add_parser("api", help="Start API server")
@@ -61,11 +68,11 @@ def main():
 
         if args.input:
             # Process single file
-            rvc.infer_file(args.input, args.output)
+            rvc.infer_file(args.input, args.output, num_workers=args.workers)
             print(f"Processed file saved to: {args.output}")
         elif args.dir:
             # Process directory
-            output_files = rvc.infer_dir(args.dir, args.output)
+            output_files = rvc.infer_dir(args.dir, args.output, num_workers=args.workers)
             print(f"Processed {len(output_files)} files. Output directory: {args.output}")
         else:
             print("Error: Either --input or --dir must be specified for CLI mode.")

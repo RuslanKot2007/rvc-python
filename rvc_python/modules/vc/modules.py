@@ -153,6 +153,7 @@ class VC:
         resample_sr,
         rms_mix_rate,
         protect,
+        num_workers=1,
     ):
         if input_audio_path is None:
             return "You need to upload an audio", None
@@ -200,6 +201,7 @@ class VC:
                 self.version,
                 protect,
                 f0_file,
+                num_workers=num_workers,
             )
             if self.tgt_sr != resample_sr >= 16000:
                 tgt_sr = resample_sr

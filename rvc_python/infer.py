@@ -5,6 +5,10 @@ from glob import glob
 import soundfile as sf
 from scipy.io import wavfile
 from rvc_python.modules.vc.modules import VC
+from rvc_python.modules.vc.pipeline import _init_worker
+
+# Global inference instance for multiprocessing workers
+_inference_instance = None
 from rvc_python.configs.config import Config
 from rvc_python.download_model import download_rvc_models
 
@@ -114,12 +118,14 @@ class RVCInference:
             else:
                 print(f"Warning: parameter {key} not recognized and will be ignored.")
 
-    def infer_file(self, input_path, output_path):
+    def infer_file(self, input_path, output_path, num_workers=1):
         """Processes a single file.
 
         Args:
             input_path (str): Path to the input audio file.
             output_path (str): Path to save the output audio file.
+            num_workers (int, optional): Number of worker processes to use for
+                processing. Defaults to ``1`` (no parallelism).
         """
         if not self.current_model:
             raise ValueError("Please load a model first.")
@@ -139,18 +145,21 @@ class RVCInference:
             rms_mix_rate=self.rms_mix_rate,
             protect=self.protect,
             f0_file="",
-            file_index2=""
+            file_index2="",
+            num_workers=num_workers,
         )
 
         wavfile.write(output_path, self.vc.tgt_sr, wav_opt)
         return output_path
 
-    def infer_dir(self, input_dir, output_dir):
+    def infer_dir(self, input_dir, output_dir, num_workers=1):
         """Processes all files in a directory.
 
         Args:
             input_dir (str): Path to the input directory containing audio files.
             output_dir (str): Path to the output directory to save processed files.
+            num_workers (int, optional): Number of worker processes to use for
+                parallel processing. Defaults to ``1`` (no parallelism).
         """
         if not self.current_model:
             raise ValueError("Please load a model first.")
@@ -159,11 +168,30 @@ class RVCInference:
         audio_files = glob(os.path.join(input_dir, '*.*'))
         processed_files = []
 
-        for input_audio_path in audio_files:
+        global _inference_instance
+        _inference_instance = self
+
+        def process_file(input_audio_path):
             output_filename = os.path.splitext(os.path.basename(input_audio_path))[0] + '.wav'
             output_path = os.path.join(output_dir, output_filename)
-            self.infer_file(input_audio_path, output_path)
-            processed_files.append(output_path)
+            _inference_instance.infer_file(input_audio_path, output_path, num_workers=1)
+            return output_path
+
+        if num_workers > 1:
+            from concurrent.futures import ProcessPoolExecutor
+            import multiprocessing
+
+            with ProcessPoolExecutor(
+                max_workers=num_workers,
+                mp_context=multiprocessing.get_context("fork"),
+                initializer=_init_worker,
+                initargs=(1,),
+            ) as executor:
+                for result in executor.map(process_file, audio_files):
+                    processed_files.append(result)
+        else:
+            for input_audio_path in audio_files:
+                processed_files.append(process_file(input_audio_path))
 
         return processed_files
 
